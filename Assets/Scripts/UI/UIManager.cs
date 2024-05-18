@@ -1,68 +1,113 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using Network.Request.Data;
+using Network.Responses;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.UI;
-
-public sealed class UIManager : MonoBehaviour, IAuthUI, IGameUI, IVillageUI, IGeneralUI
+public enum UIElementType
+{
+    Auth,
+    MainMenu,
+    Village,
+}
+[System.Serializable]
+public class UIElementReference
+{
+    public UIElementType elementType;
+    public GameObject uiElement;
+}
+public sealed class UIManager : MonoBehaviour
 {
     public static UIManager Instance { get; private set; }
 
+    [SerializeField] private UIElementReference[] _uiElements;
+
+
     [ToolboxItem("Auth UI")]
     [SerializeField] private GameObject _authPanel;
-    
+
     [ToolboxItem("Game UI")]
-    [SerializeField] private InputField _authUsername,_authPassword;
+    [SerializeField] private InputField _authUsername, _authPassword;
     [SerializeField] private GameObject _gamePanel;
     [SerializeField] private GameObject _villagePanel;
     [ToolboxItem("Game UI")]
     [SerializeField] private Text _coinsText;
     [SerializeField] private Text _villagesOwner;
 
-    private void Awake() {
-        if(Instance == null)
+    private List<IUIAuthenticationObserver> _authenticationObservers = new List<IUIAuthenticationObserver>();
+
+
+
+    private void Awake()
+    {
+        if (Instance == null)
             Instance = this;
+        else Destroy(this.gameObject);
+    }
+
+    private void Start()
+    {
+        SubscribeToEvents();
     }
 
 
-    public void SetActiveAuthPanel(bool active)
-    {
-        _authPanel.SetActive(active);
 
+
+
+    #region Button Handlers
+    public void HandleLoginButtonClick() => NotifyAuthenticationObserversLoginButtonPressed();
+    #endregion
+
+    #region Events
+    private void UpdatePlayerUI(UserResponse data)
+    {
+        _coinsText.text = data["Coins"];
     }
-
-    public string GetInputText(AuthInputType inputType)
+    private void UpdateVillageUI(UserResponse data)
     {
-        return inputType switch
-        {
-            AuthInputType.Username => _authUsername.text,
-            AuthInputType.Password => _authPassword.text,
-            _ => null,
-        };
+        _villagesOwner.text = data.Username + "'s village";
     }
-
-    public void SetUICoinsText(string value)
-    {
-        _coinsText.text = value;
-    }
-
-    public void HideAllPanels()
-    {
-        _authPanel.SetActive(false);
-        _gamePanel.SetActive(false);
-        _villagePanel.SetActive(false);
-    }
-
-    public void ShowVillagePanel(bool active)
-    {
-        HideAllPanels();
-        _villagePanel.SetActive(active);
+    #endregion
     
-        _gamePanel.SetActive(!active);
-    }
+    #region Events Subscribtions
+    public void SubscribeToAuthenticationEvents(IUIAuthenticationObserver observer) =>
+        _authenticationObservers.Add(observer);
+    private void NotifyAuthenticationObserversLoginButtonPressed() => 
+    _authenticationObservers.ForEach(observer => observer.OnLoginButtonPressed(_authUsername.text, _authPassword.text));
 
-    public void SetVillageOwner(string s)
+    private void SubscribeToEvents()
     {
-        _villagesOwner.text = s;
+        GameManager.OnPlayerDataUpdated += UpdatePlayerUI;
+        VillageManager.OnVillageOwnerChanged += UpdateVillageUI;
     }
+    private void UnSubscribeFromEvents()
+    {
+        GameManager.OnPlayerDataUpdated -= UpdatePlayerUI;
+    }
+    #endregion
+
+    #region Static General 
+    public static void SetActive(UIElementType elementType, bool state)
+    {
+        bool result = false;
+        foreach(var item in Instance._uiElements)
+        {
+            item.uiElement.SetActive(item.elementType == elementType);
+            
+            if(item.elementType == elementType)
+                result = true;
+
+        }
+
+        if (result == false)
+        {
+            Debug.LogError("UI Element reference not found for type: " + elementType);
+            return;
+        }
+    }
+    #endregion
+    
+    private void OnDestroy() => UnSubscribeFromEvents();
 }
